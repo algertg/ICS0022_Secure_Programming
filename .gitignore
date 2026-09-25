@@ -1,0 +1,13 @@
+# build output
+pwman
+*.o
+*.tmp
+
+# local test vaults
+*.db
+*.vault
+
+# editor/OS cruft
+.vscode/
+*.swp
+.DS_Store
