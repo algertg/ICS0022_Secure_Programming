@@ -196,3 +196,16 @@ Writes are always atomic: build the full new file content, write it to
   but adds a dependency and its own file-format concerns; a single
   encrypted blob is simpler to reason about for a checkpoint-scale vault.
   May be revisited if the entry count/search requirements grow.
+
+
+## 5. Checkpoint 2 implementation notes
+
+The first working version implements the core vault flow and the envelope
+encryption described above. The KDF limits are stored in the file and checked
+against the supported profile before the KDF is run. The command-line
+interface provides add, list, update and delete operations; list output never
+includes passwords. Terminal password input has echo disabled.
+
+The program writes the encrypted file through a temporary file with owner-only
+permissions and renames it into place after a successful write. The current
+implementation is a learning checkpoint and has not undergone a security audit.

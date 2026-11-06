@@ -1,15 +1,14 @@
-#include <stdio.h>
-#include <sodium.h>
+#include "cli.h"
 
-int main(int argc, char **argv) {
+#include <sodium.h>
+#include <stdio.h>
+
+int main(void)
+{
     if (sodium_init() < 0) {
-        fprintf(stderr, "error: libsodium init failed\n");
+        fprintf(stderr, "Could not initialize libsodium.\n");
         return 1;
     }
 
-    /* TODO: dispatch to cli.c command parser */
-    (void)argc;
-    (void)argv;
-    printf("pwman: no commands implemented yet (Checkpoint 1 scaffold)\n");
-    return 0;
+    return cli_run();
 }
