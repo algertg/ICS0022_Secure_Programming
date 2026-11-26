@@ -1,6 +1,6 @@
 #ifndef PWMAN_CLI_H
 #define PWMAN_CLI_H
 
-/* CLI layer: argument parsing and command dispatch. */
+int cli_run(void);
 
-#endif /* PWMAN_CLI_H */
+#endif

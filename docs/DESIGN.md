@@ -2,9 +2,10 @@
 
 ## 1. Scope
 
-A local, single-user command-line password manager written in C. It stores
-credentials (title, username, password, URL, notes) in a single encrypted
-vault file on disk. No network sync in this checkpoint — everything is
+A local command-line password manager written in C. It stores credentials
+(title, username, password, URL, notes) in a separate encrypted vault for each
+application username. Each vault is protected by that account's master password.
+No network sync in this checkpoint — everything is
 local-first. Cryptography is provided by **libsodium**; no hand-rolled
 primitives.
 
@@ -76,14 +77,21 @@ vault file.`
 | Module | File(s) | Responsibility | Does *not* do |
 |---|---|---|---|
 | Crypto | `crypto.c/h` | KDF, AEAD encrypt/decrypt, CSPRNG, secure-memory alloc/wipe | Never touches the filesystem or CLI |
-| User management | `auth.c/h` | Master password prompt, KEK derivation, session/unlock state, attempt limiting | Never encrypts vault entries directly — delegates to crypto module |
+| User management | `auth.c/h`, `user_store.c/h` | Account-name validation, account vault paths and permissions, master password prompt and account session | Never encrypts vault entries directly — delegates to crypto module |
 | Storage | `vault.c/h` | Vault file format, atomic read/write, header parsing, entry serialization | Never sees the plaintext master password |
-| CLI | `cli.c/h`, `main.c` | Argument parsing, command dispatch, output formatting | Holds no long-lived secrets itself |
+| CLI | `cli.c/h`, `main.c` | Command dispatch, output formatting and authorization checks for record operations | Holds no long-lived secrets itself |
 
 The boundary that matters: **plaintext passwords exist only inside the
 crypto and storage modules' secure-memory buffers**, and only while the
 vault is unlocked. The CLI layer passes opaque handles, not raw secrets,
 wherever possible.
+
+Each validated application username maps to a distinct encrypted vault under
+`users/`. The directory is restricted to mode `0700`, vaults to `0600`, and
+record operations require an authenticated session whose account name matches
+its selected vault path. Records are private to the account; there is no
+sharing or administrator role. If no account vault exists yet, the first
+account may import the legacy `vault.db`; the original is retained.
 
 ## 3. Threat Model
 
@@ -196,3 +204,16 @@ Writes are always atomic: build the full new file content, write it to
   but adds a dependency and its own file-format concerns; a single
   encrypted blob is simpler to reason about for a checkpoint-scale vault.
   May be revisited if the entry count/search requirements grow.
+
+
+## 5. Checkpoint 2 implementation notes
+
+The first working version implements the core vault flow and the envelope
+encryption described above. The KDF limits are stored in the file and checked
+against the supported profile before the KDF is run. The command-line
+interface provides add, list, update and delete operations; list output never
+includes passwords. Terminal password input has echo disabled.
+
+The program writes the encrypted file through a temporary file with owner-only
+permissions and renames it into place after a successful write. The current
+implementation is a learning checkpoint and has not undergone a security audit.

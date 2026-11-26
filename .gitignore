@@ -1,13 +1,15 @@
-# build output
+# Build output
 pwman
+build/
 *.o
 *.tmp
 
-# local test vaults
-*.db
-*.vault
+# Local vaults and test data
+vault.db
+vault.db.tmp
+test-vault.db
 
-# editor/OS cruft
+# Editor/OS files
 .vscode/
 *.swp
 .DS_Store
