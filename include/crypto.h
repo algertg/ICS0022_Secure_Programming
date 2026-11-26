@@ -27,5 +27,12 @@ int crypto_decrypt(const unsigned char *cipher, size_t cipher_length,
 
 void crypto_random(unsigned char *buffer, size_t length);
 void crypto_wipe(void *buffer, size_t length);
+/* Returns NULL unless allocation and memory locking both succeed. */
+void *crypto_secure_alloc(size_t length);
+void crypto_secure_free(void *buffer);
+
+/* Reject empty fields when required and reject control/edge-whitespace bytes. */
+int crypto_text_is_valid(const char *text, size_t text_size,
+                         size_t max_length, int allow_empty);
 
 #endif

@@ -143,10 +143,11 @@ static int serialize_vault(const Vault *vault, unsigned char *output,
 static int deserialize_vault(const unsigned char *input, size_t input_length,
                              Vault *vault)
 {
-    Vault loaded = {0};
+    Vault *loaded;
     size_t position = 4;
     uint32_t count;
     unsigned int i;
+    int success = 0;
 
     if (input_length < 4) {
         return 0;
@@ -157,28 +158,39 @@ static int deserialize_vault(const unsigned char *input, size_t input_length,
         return 0;
     }
 
-    loaded.count = count;
-    for (i = 0; i < loaded.count; i++) {
-        Credential *entry = &loaded.entries[i];
+    loaded = crypto_secure_alloc(sizeof(*loaded));
+    if (loaded == NULL) {
+        return 0;
+    }
+    loaded->count = count;
+    for (i = 0; i < loaded->count; i++) {
+        Credential *entry = &loaded->entries[i];
         if (!get_string(input, input_length, &position, entry->service,
                         sizeof(entry->service)) ||
             !get_string(input, input_length, &position, entry->username,
                         sizeof(entry->username)) ||
             !get_string(input, input_length, &position, entry->password,
-                        sizeof(entry->password))) {
-            crypto_wipe(&loaded, sizeof(loaded));
-            return 0;
+                        sizeof(entry->password)) ||
+            !crypto_text_is_valid(entry->service, sizeof(entry->service),
+                                  sizeof(entry->service) - 1, 0) ||
+            !crypto_text_is_valid(entry->username, sizeof(entry->username),
+                                  sizeof(entry->username) - 1, 0) ||
+            !crypto_text_is_valid(entry->password, sizeof(entry->password),
+                                  sizeof(entry->password) - 1, 0)) {
+            goto cleanup;
         }
     }
 
     if (position != input_length) {
-        crypto_wipe(&loaded, sizeof(loaded));
-        return 0;
+        goto cleanup;
     }
 
-    *vault = loaded;
-    crypto_wipe(&loaded, sizeof(loaded));
-    return 1;
+    *vault = *loaded;
+    success = 1;
+
+cleanup:
+    crypto_secure_free(loaded);
+    return success;
 }
 
 static int write_all(int fd, const unsigned char *data, size_t length)
@@ -231,20 +243,21 @@ static int write_vault_file(const char *path, const unsigned char *data,
 
 int vault_save(const char *path, const char *master_password, const Vault *vault)
 {
-    unsigned char file_data[FILE_MAX_SIZE] = {0};
-    unsigned char plaintext[PLAIN_MAX_SIZE] = {0};
-    unsigned char kek[PWMAN_KEY_SIZE] = {0};
-    unsigned char dek[PWMAN_KEY_SIZE] = {0};
+    unsigned char *file_data = crypto_secure_alloc(FILE_MAX_SIZE);
+    unsigned char *plaintext = crypto_secure_alloc(PLAIN_MAX_SIZE);
+    unsigned char *kek = crypto_secure_alloc(PWMAN_KEY_SIZE);
+    unsigned char *dek = crypto_secure_alloc(PWMAN_KEY_SIZE);
     size_t plaintext_length = 0;
     size_t wrapped_length = 0;
     size_t body_length = 0;
     int success = 0;
 
-    if (path == NULL || master_password == NULL || vault == NULL) {
-        return 0;
+    if (path == NULL || master_password == NULL || vault == NULL ||
+        file_data == NULL || plaintext == NULL || kek == NULL || dek == NULL) {
+        goto cleanup;
     }
 
-    if (!serialize_vault(vault, plaintext, sizeof(plaintext), &plaintext_length)) {
+    if (!serialize_vault(vault, plaintext, PLAIN_MAX_SIZE, &plaintext_length)) {
         goto cleanup;
     }
 
@@ -257,7 +270,7 @@ int vault_save(const char *path, const char *master_password, const Vault *vault
     crypto_random(file_data + OFF_SALT, PWMAN_SALT_SIZE);
     crypto_random(file_data + OFF_WRAP_NONCE, PWMAN_NONCE_SIZE);
     crypto_random(file_data + OFF_BODY_NONCE, PWMAN_NONCE_SIZE);
-    crypto_random(dek, sizeof(dek));
+    crypto_random(dek, PWMAN_KEY_SIZE);
 
     if (!crypto_derive_key(master_password, file_data + OFF_SALT,
                            KDF_OPSLIMIT, KDF_MEMLIMIT, kek)) {
@@ -265,7 +278,7 @@ int vault_save(const char *path, const char *master_password, const Vault *vault
     }
 
     /* The first 66 header bytes are authenticated while wrapping the DEK. */
-    if (!crypto_encrypt(dek, sizeof(dek), file_data, OFF_WRAPPED_DEK,
+    if (!crypto_encrypt(dek, PWMAN_KEY_SIZE, file_data, OFF_WRAPPED_DEK,
                         file_data + OFF_WRAP_NONCE, kek,
                         file_data + OFF_WRAPPED_DEK, &wrapped_length) ||
         wrapped_length != WRAPPED_DEK_SIZE) {
@@ -282,19 +295,19 @@ int vault_save(const char *path, const char *master_password, const Vault *vault
     success = write_vault_file(path, file_data, HEADER_SIZE + body_length);
 
 cleanup:
-    crypto_wipe(file_data, sizeof(file_data));
-    crypto_wipe(plaintext, sizeof(plaintext));
-    crypto_wipe(kek, sizeof(kek));
-    crypto_wipe(dek, sizeof(dek));
+    crypto_secure_free(file_data);
+    crypto_secure_free(plaintext);
+    crypto_secure_free(kek);
+    crypto_secure_free(dek);
     return success;
 }
 
 int vault_load(const char *path, const char *master_password, Vault *vault)
 {
-    unsigned char file_data[FILE_MAX_SIZE] = {0};
-    unsigned char plaintext[PLAIN_MAX_SIZE] = {0};
-    unsigned char kek[PWMAN_KEY_SIZE] = {0};
-    unsigned char dek[PWMAN_KEY_SIZE] = {0};
+    unsigned char *file_data = crypto_secure_alloc(FILE_MAX_SIZE);
+    unsigned char *plaintext = crypto_secure_alloc(PLAIN_MAX_SIZE);
+    unsigned char *kek = crypto_secure_alloc(PWMAN_KEY_SIZE);
+    unsigned char *dek = crypto_secure_alloc(PWMAN_KEY_SIZE);
     FILE *file = NULL;
     long file_length;
     size_t plaintext_length = 0;
@@ -303,12 +316,17 @@ int vault_load(const char *path, const char *master_password, Vault *vault)
     int success = 0;
 
     if (vault == NULL) {
+        crypto_secure_free(file_data);
+        crypto_secure_free(plaintext);
+        crypto_secure_free(kek);
+        crypto_secure_free(dek);
         return 0;
     }
     vault_clear(vault);
 
-    if (path == NULL || master_password == NULL) {
-        return 0;
+    if (path == NULL || master_password == NULL ||
+        file_data == NULL || plaintext == NULL || kek == NULL || dek == NULL) {
+        goto cleanup;
     }
 
     file = fopen(path, "rb");
@@ -362,10 +380,10 @@ cleanup:
     if (file != NULL) {
         fclose(file);
     }
-    crypto_wipe(file_data, sizeof(file_data));
-    crypto_wipe(plaintext, sizeof(plaintext));
-    crypto_wipe(kek, sizeof(kek));
-    crypto_wipe(dek, sizeof(dek));
+    crypto_secure_free(file_data);
+    crypto_secure_free(plaintext);
+    crypto_secure_free(kek);
+    crypto_secure_free(dek);
     if (!success) {
         vault_clear(vault);
     }

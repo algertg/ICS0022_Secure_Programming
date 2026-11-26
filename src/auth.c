@@ -23,11 +23,11 @@ int auth_read_hidden(const char *prompt, char *output, size_t output_size)
     new_settings = old_settings;
     new_settings.c_lflag &= (tcflag_t)~ECHO;
 
-    printf("%s", prompt);
-    fflush(stdout);
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &new_settings) != 0) {
         return 0;
     }
+    printf("%s", prompt);
+    fflush(stdout);
 
     if (fgets(output, (int)output_size, stdin) == NULL) {
         (void)tcsetattr(STDIN_FILENO, TCSAFLUSH, &old_settings);
@@ -59,15 +59,28 @@ int auth_read_hidden(const char *prompt, char *output, size_t output_size)
 int auth_prompt_master_password(char *password, size_t password_size,
                                 int creating_vault)
 {
-    char confirmation[256] = {0};
+    char *confirmation = crypto_secure_alloc(256);
+
+    if (confirmation == NULL) {
+        return 0;
+    }
 
     if (!auth_read_hidden(creating_vault ? "Choose master password (hidden): " :
                                      "Master password (hidden): ",
                      password, password_size)) {
+        crypto_secure_free(confirmation);
+        return 0;
+    }
+
+    if (!crypto_text_is_valid(password, password_size, password_size - 1, 0)) {
+        fprintf(stderr, "Invalid master password.\n");
+        crypto_wipe(password, password_size);
+        crypto_secure_free(confirmation);
         return 0;
     }
 
     if (!creating_vault) {
+        crypto_secure_free(confirmation);
         return 1;
     }
 
@@ -75,23 +88,23 @@ int auth_prompt_master_password(char *password, size_t password_size,
         printf("Use at least %d characters for the master password.\n",
                MIN_MASTER_PASSWORD);
         crypto_wipe(password, password_size);
+        crypto_secure_free(confirmation);
         return 0;
     }
 
-    if (!auth_read_hidden("Repeat master password (hidden): ", confirmation,
-                     sizeof(confirmation))) {
+    if (!auth_read_hidden("Repeat master password (hidden): ", confirmation, 256)) {
         crypto_wipe(password, password_size);
-        crypto_wipe(confirmation, sizeof(confirmation));
+        crypto_secure_free(confirmation);
         return 0;
     }
 
     if (strcmp(password, confirmation) != 0) {
         printf("The passwords did not match.\n");
         crypto_wipe(password, password_size);
-        crypto_wipe(confirmation, sizeof(confirmation));
+        crypto_secure_free(confirmation);
         return 0;
     }
 
-    crypto_wipe(confirmation, sizeof(confirmation));
+    crypto_secure_free(confirmation);
     return 1;
 }

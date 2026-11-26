@@ -2,9 +2,10 @@
 
 ## 1. Scope
 
-A local, single-user command-line password manager written in C. It stores
-credentials (title, username, password, URL, notes) in a single encrypted
-vault file on disk. No network sync in this checkpoint — everything is
+A local command-line password manager written in C. It stores credentials
+(title, username, password, URL, notes) in a separate encrypted vault for each
+application username. Each vault is protected by that account's master password.
+No network sync in this checkpoint — everything is
 local-first. Cryptography is provided by **libsodium**; no hand-rolled
 primitives.
 
@@ -76,14 +77,21 @@ vault file.`
 | Module | File(s) | Responsibility | Does *not* do |
 |---|---|---|---|
 | Crypto | `crypto.c/h` | KDF, AEAD encrypt/decrypt, CSPRNG, secure-memory alloc/wipe | Never touches the filesystem or CLI |
-| User management | `auth.c/h` | Master password prompt, KEK derivation, session/unlock state, attempt limiting | Never encrypts vault entries directly — delegates to crypto module |
+| User management | `auth.c/h`, `user_store.c/h` | Account-name validation, account vault paths and permissions, master password prompt and account session | Never encrypts vault entries directly — delegates to crypto module |
 | Storage | `vault.c/h` | Vault file format, atomic read/write, header parsing, entry serialization | Never sees the plaintext master password |
-| CLI | `cli.c/h`, `main.c` | Argument parsing, command dispatch, output formatting | Holds no long-lived secrets itself |
+| CLI | `cli.c/h`, `main.c` | Command dispatch, output formatting and authorization checks for record operations | Holds no long-lived secrets itself |
 
 The boundary that matters: **plaintext passwords exist only inside the
 crypto and storage modules' secure-memory buffers**, and only while the
 vault is unlocked. The CLI layer passes opaque handles, not raw secrets,
 wherever possible.
+
+Each validated application username maps to a distinct encrypted vault under
+`users/`. The directory is restricted to mode `0700`, vaults to `0600`, and
+record operations require an authenticated session whose account name matches
+its selected vault path. Records are private to the account; there is no
+sharing or administrator role. If no account vault exists yet, the first
+account may import the legacy `vault.db`; the original is retained.
 
 ## 3. Threat Model
 

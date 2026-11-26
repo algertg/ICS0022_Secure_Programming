@@ -1,6 +1,7 @@
 #include "crypto.h"
 
 #include <sodium.h>
+#include <ctype.h>
 #include <string.h>
 
 int crypto_derive_key(const char *password, const unsigned char *salt,
@@ -60,4 +61,67 @@ void crypto_random(unsigned char *buffer, size_t length)
 void crypto_wipe(void *buffer, size_t length)
 {
     sodium_memzero(buffer, length);
+}
+
+void *crypto_secure_alloc(size_t length)
+{
+    void *buffer;
+
+    if (length == 0) {
+        return NULL;
+    }
+    buffer = sodium_malloc(length);
+    if (buffer == NULL) {
+        return NULL;
+    }
+    if (sodium_mlock(buffer, length) != 0) {
+        sodium_free(buffer);
+        return NULL;
+    }
+    return buffer;
+}
+
+void crypto_secure_free(void *buffer)
+{
+    if (buffer != NULL) {
+        sodium_free(buffer);
+    }
+}
+
+int crypto_text_is_valid(const char *text, size_t text_size,
+                         size_t max_length, int allow_empty)
+{
+    size_t length;
+    size_t i;
+
+    if (text == NULL || text_size == 0 ||
+        max_length > text_size - 1) {
+        return 0;
+    }
+
+    length = 0;
+    while (length < text_size && text[length] != '\0') {
+        length++;
+    }
+    if (length == text_size) {
+        return 0;
+    }
+    if (length == 0) {
+        return allow_empty;
+    }
+    if (length > max_length) {
+        return 0;
+    }
+
+    for (i = 0; i < length; i++) {
+        unsigned char ch = (unsigned char)text[i];
+        if (iscntrl(ch)) {
+            return 0;
+        }
+    }
+    if (isspace((unsigned char)text[0]) ||
+        isspace((unsigned char)text[length - 1])) {
+        return 0;
+    }
+    return 1;
 }

@@ -1,9 +1,9 @@
 # pwman — a small local password manager in C
 
-`pwman` is a command-line password manager for one local user. It stores service
-names, usernames and passwords in one encrypted vault file. This is a learning
-project: it does not include cloud sync, browser extensions or a password
-recovery feature.
+`pwman` is a local command-line password manager with separate application
+accounts. Each username has a separate encrypted vault and master password.
+This is a learning project: it does not include cloud sync, browser extensions
+or a password recovery feature.
 
 ## Features in Checkpoint 2
 
@@ -13,6 +13,7 @@ recovery feature.
 - Encrypt the vault contents before writing them to disk.
 - Hide master-password and credential-password input while typing.
 - List services and usernames without displaying stored passwords.
+- Keep each account's records in its own encrypted vault under `users/`.
 
 ## Dependencies
 
@@ -43,9 +44,14 @@ This creates the `pwman` executable.
 ./pwman
 ```
 
-On the first run, the program asks you to choose and confirm a master
-password. It creates `vault.db` in the current directory. On later runs, it
-asks for the master password and opens the vault only if verification succeeds.
+On each run, the program asks for an account username. New accounts choose and
+confirm a master password; existing accounts unlock only their own encrypted
+vault. Usernames are limited to letters, digits, `_` and `-`. Vault files are
+stored in a private `users/` directory with owner-only permissions.
+There is no central account registry; an account is represented by its vault file.
+
+If a legacy `vault.db` exists and no account vaults exist yet, the first account
+can import it using its existing master password. The original file is retained.
 
 The menu lets you add, list, update and delete credentials. Password input is
 not echoed by the terminal. The list view displays service names and usernames
@@ -63,11 +69,23 @@ make clean
 make test
 ```
 
-The vault tests check encryption at rest, correct and incorrect master-password
-handling, credential recovery, owner-only file permissions and rejection of
-modified ciphertext.
+The tests cover encrypted storage and authentication, account vault isolation,
+account/path validation, structured secret-free logs, protected memory
+allocation and wiping, text validation, and owner-only file permissions.
 
 ## Encryption design
+
+- Key events are written to standard error as structured `event` and `status`
+  fields. Log labels are fixed by the program; passwords, usernames, services,
+  vault contents and other user-provided data are not logged.
+
+- All required text fields reject empty values, control characters and leading or
+  trailing whitespace. Menu choices and credential IDs must contain digits only.
+  Parsed vault records are revalidated before use and malformed records are rejected.
+
+- Secret-bearing buffers use libsodium's protected allocations and are page-locked;
+  allocation fails if locking fails. Buffers are zeroed on free, and the process
+  refuses to start if it cannot disable core dumps.
 
 - libsodium's Argon2id KDF derives a key-encryption key from the master password
   and a random 16-byte salt.

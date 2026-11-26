@@ -18,7 +18,7 @@ typedef struct {
     Credential entries[VAULT_MAX_ENTRIES];
 } Vault;
 
-/* Return 1 on success and 0 on failure. */
+/* Plaintext vaults must reside in memory allocated with crypto_secure_alloc(). */
 int vault_save(const char *path, const char *master_password, const Vault *vault);
 int vault_load(const char *path, const char *master_password, Vault *vault);
 void vault_clear(Vault *vault);
